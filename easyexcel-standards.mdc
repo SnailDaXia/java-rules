@@ -1,0 +1,109 @@
+---
+description: EasyExcel 导入导出规范。在 Excel 导入、导出、使用 EasyExcel 读写操作时应用。
+globs: 
+alwaysApply: false
+---
+
+# EasyExcel 导入导出规范
+
+## 导入（读取）
+
+### 使用 ReadListener 模式
+
+**禁止一次性加载全部数据到内存**，必须使用监听器模式：
+
+```java
+EasyExcel.read(inputStream, UserInfoImportRequest.class, new UserInfoExcelListener(userService))
+    .headRowNumber(2)
+    .sheet(0)
+    .doRead();
+```
+
+### 监听器模板
+
+```java
+public class XxxExcelListener extends AnalysisEventListener<XxxImportDTO> {
+
+    private final IXxxService xxxService;
+    private final List<XxxImportDTO> dataList = new ArrayList<>();
+    private static final int BATCH_SIZE = 500;
+
+    public XxxExcelListener(IXxxService xxxService) {
+        this.xxxService = xxxService;
+    }
+
+    @Override
+    public void invoke(XxxImportDTO data, AnalysisContext context) {
+        dataList.add(data);
+        if (dataList.size() >= BATCH_SIZE) {
+            xxxService.batchImport(dataList);
+            dataList.clear();
+        }
+    }
+
+    @Override
+    public void doAfterAllAnalysed(AnalysisContext context) {
+        if (CollUtil.isNotEmpty(dataList)) {
+            xxxService.batchImport(dataList);
+            dataList.clear();
+        }
+    }
+}
+```
+
+## 导出（写入）
+
+### 导出 VO 定义
+
+放在 `vo/` 包下，使用 `@ExcelProperty` 注解：
+
+```java
+@Data
+public class XxxExportVO {
+    @ExcelProperty("姓名")
+    private String name;
+
+    @ExcelProperty("手机号")
+    private String phone;
+
+    @ExcelProperty("创建时间")
+    @DateTimeFormat("yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime createTime;
+}
+```
+
+### 单 Sheet 导出
+
+```java
+@PostMapping("/export")
+public void export(HttpServletResponse response, XxxQuery query) throws IOException {
+    response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    response.setCharacterEncoding("utf-8");
+    String fileName = URLEncoder.encode("导出数据", "UTF-8");
+    response.setHeader("Content-disposition", "attachment;filename=" + fileName + ".xlsx");
+
+    List<XxxExportVO> list = xxxService.selectExportList(query);
+    EasyExcel.write(response.getOutputStream(), XxxExportVO.class)
+        .sheet("数据")
+        .doWrite(list);
+}
+```
+
+### 多 Sheet 导出
+
+```java
+ExcelWriter excelWriter = EasyExcel.write(response.getOutputStream()).build();
+try {
+    WriteSheet sheet1 = EasyExcel.writerSheet(0, "Sheet1").head(Vo1.class).build();
+    excelWriter.write(data1, sheet1);
+
+    WriteSheet sheet2 = EasyExcel.writerSheet(1, "Sheet2").head(Vo2.class).build();
+    excelWriter.write(data2, sheet2);
+} finally {
+    excelWriter.finish();
+}
+```
+
+## 大数据量导出
+
+超过 10000 条数据时，使用分批写入避免内存溢出。

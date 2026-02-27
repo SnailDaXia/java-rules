@@ -1,0 +1,139 @@
+---
+description: MyBatis Mapper XML 编写规范，定义 SQL 安全、动态 SQL、命名等标准
+globs: "**/mapper/*.xml"
+alwaysApply: false
+---
+
+# MyBatis Mapper XML 规范
+
+## SQL 注入防护
+
+**必须使用 `#{}` 而非 `${}`**
+
+```xml
+<!-- ❌ 错误 - SQL 注入风险 -->
+<select id="selectUser">
+    SELECT * FROM sys_user WHERE user_name = '${userName}'
+</select>
+
+<!-- ✅ 正确 -->
+<select id="selectUser">
+    SELECT user_name, phone_number FROM sys_user WHERE user_name = #{userName}
+</select>
+```
+
+## 禁止 SELECT *
+
+明确列出需要的字段，不要使用 `SELECT *`：
+
+```xml
+<!-- ❌ 错误 -->
+<select id="selectUserList" resultMap="SysUserResult">
+    SELECT * FROM sys_user
+</select>
+
+<!-- ✅ 正确 -->
+<select id="selectUserList" resultMap="SysUserResult">
+    SELECT user_id, user_name, real_name, phone_number, status, org_id
+    FROM sys_user
+</select>
+```
+
+## 分页
+
+分页由 MyBatis-Plus 分页插件自动处理，**不要手写 LIMIT**。
+
+## 逻辑删除
+
+查询条件默认带 `is_delete = 0`（MyBatis-Plus `@TableLogic` 自动处理简单查询，手写 XML 需显式添加）：
+
+```xml
+<select id="selectXxxList">
+    SELECT id, name, org_id FROM xxx
+    WHERE is_delete = 0
+    <if test="name != null and name != ''">
+        AND name LIKE CONCAT('%', #{name}, '%')
+    </if>
+</select>
+```
+
+## 动态 SQL
+
+### if 条件
+
+```xml
+<if test="status != null">
+    AND status = #{status}
+</if>
+<if test="name != null and name != ''">
+    AND name LIKE CONCAT('%', #{name}, '%')
+</if>
+```
+
+### choose/when/otherwise
+
+```xml
+<choose>
+    <when test="type == 1">AND category = 'A'</when>
+    <when test="type == 2">AND category = 'B'</when>
+    <otherwise>AND category = 'DEFAULT'</otherwise>
+</choose>
+```
+
+### foreach 批量操作
+
+```xml
+<delete id="deleteByIds">
+    DELETE FROM xxx WHERE id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">
+        #{id}
+    </foreach>
+</delete>
+```
+
+## resultMap 命名
+
+- 基础映射：`{Entity}Result`（如 `SysUserResult`）
+- 关联查询：`{Entity}DetailResult`
+
+## 复杂查询注释
+
+复杂查询必须加 SQL 注释说明意图：
+
+```xml
+<!-- 查询用户及其所属部门信息，关联部门表获取部门名称 -->
+<select id="selectUserWithDept" resultMap="SysUserDeptResult">
+    SELECT u.user_id, u.user_name, d.dept_name
+    FROM sys_user u
+    LEFT JOIN sys_dept d ON u.dept_id = d.dept_id
+    WHERE u.is_delete = 0
+</select>
+```
+
+## Mapper XML 文件模板
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ydd.system.mapper.XxxMapper">
+
+    <resultMap type="com.ydd.system.domain.XxxEntity" id="XxxResult">
+        <id property="id" column="id"/>
+        <result property="name" column="name"/>
+        <result property="orgId" column="org_id"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+
+    <select id="selectXxxList" parameterType="com.ydd.system.query.XxxQuery" resultMap="XxxResult">
+        SELECT id, name, org_id, create_time
+        FROM xxx
+        WHERE is_delete = 0
+        <if test="name != null and name != ''">
+            AND name LIKE CONCAT('%', #{name}, '%')
+        </if>
+        ORDER BY create_time DESC
+    </select>
+
+</mapper>
+```

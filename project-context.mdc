@@ -1,0 +1,84 @@
+---
+description: YDD-System 项目技术栈和核心约定，提供项目全局背景信息
+alwaysApply: true
+---
+
+# YDD-System 项目上下文
+
+## 技术栈
+
+- JDK 1.8 / Spring Boot 2.x / Spring Cloud Alibaba
+- MyBatis-Plus 3.5.3.1 / MySQL 8.0
+- 构建工具：Maven
+- 包路径：`com.ydd.system`
+
+## 微服务架构
+
+- **Nacos**：服务发现 + 配置中心，动态刷新用 `@RefreshScope` + `@Value`
+- **Sentinel**：与 Feign 自动集成，流控通过 Sentinel 控制台配置
+- **Seata**：分布式事务已配置（`ydd-system-group`）
+- **SkyWalking**：APM 自动追踪，日志中通过 `%tid` 输出 TraceID
+
+## 代码分层架构
+
+```
+controller/     → 接口层，参数接收和结果返回
+service/        → 业务接口（I*Service）
+service/impl/   → 业务实现（*ServiceImpl）
+mapper/         → 数据访问接口（继承 BaseMapper）
+domain/         → 数据库实体（继承 SuperEntity）
+dto/            → 数据传输对象（*DTO / *BaseDTO）
+vo/             → 视图对象（*VO）
+request/        → 请求对象（*Request）
+query/          → 查询对象（*Query）
+config/         → 配置类
+feign/          → Feign 远程调用客户端
+xxljob/         → 定时任务 Handler
+oss/            → 文件存储服务
+util/           → 工具类
+```
+
+## 工具库选型
+
+- 字符串处理：Hutool `StrUtil`
+- 集合处理：Hutool `CollUtil`
+- 日期处理：Hutool `DateUtil`
+- JSON 处理：Jackson
+- Excel：EasyExcel 3.2.1
+- Lombok：`@Data`、`@Slf4j` 等
+
+## 通用实体基类 SuperEntity
+
+所有新建业务 Entity 必须继承 `com.ydd.system.config.SuperEntity`，包含 6 个通用字段：
+
+- `createTime` — `@TableField(fill = FieldFill.INSERT)` 插入时自动填充
+- `updateTime` — `@TableField(fill = FieldFill.INSERT_UPDATE)` 插入和更新时自动填充
+- `createUser` — `@TableField(fill = FieldFill.INSERT)` 插入时自动填充当前用户 ID
+- `updateUser` — `@TableField(fill = FieldFill.INSERT_UPDATE)` 更新时自动填充当前用户 ID
+- `version` — 乐观锁
+- `isDelete` — `@TableLogic` 逻辑删除（0：否，1：是）
+
+自动填充由 `MyMetaObjectHandler` 实现，开发者**无需手动 set** 这些字段。
+
+## 多租户（org_id）
+
+- **默认不加 org_id**：建表或新建实体时，**仅当用户明确要求**「机构 id」「多租户」「按机构隔离」等时，才为表/实体增加 `org_id` 字段；并非每张表都需要。
+- 若表包含 `org_id`：租户字段通过 `MybatisPlusConfig.YddTenantLineHandler` 自动追加 SQL 条件，且该表须在 `MybatisPlusConfig.INTERCEPT_TABLES` 中注册。
+- 超级管理员（userId=1）自动跳过租户过滤。
+
+## API 规范
+
+- **请求方法：仅使用 GET 和 POST**，查询用 GET，新增/修改/删除统一用 POST
+- 返回值体系：
+  - `TableDataInfo` — 分页列表查询
+  - `AjaxResult` — 单条操作（增删改查详情）
+  - `ApiResult<T>` — 对外 API / Feign 调用
+
+## 中间件
+
+- **Redis**：缓存 + 分布式锁（`RedisService` / `RedisDistributedLock`）
+- **RabbitMQ**：消息队列（延迟消息、主题路由）
+- **Feign**：微服务远程调用（14 个客户端）
+- **XXL-Job**：分布式定时任务
+- **OSS**：文件存储（MinIO / 七牛云，通过 `FileStorageService` 统一操作）
+- **EasyExcel**：Excel 导入导出

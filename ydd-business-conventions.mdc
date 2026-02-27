@@ -1,0 +1,134 @@
+---
+description: YDD 项目业务约定，涵盖 SecurityUtils、多租户 org_id、字典系统使用规范
+globs: **/*.java
+alwaysApply: false
+---
+
+# 项目业务约定
+
+## 一、SecurityUtils 工具类
+
+`com.ydd.common.security.utils.SecurityUtils` 提供当前登录用户信息：
+
+### 常用方法
+
+```java
+Long userId    = SecurityUtils.getUserId();      // 当前用户 ID
+Long orgId     = SecurityUtils.getOrgId();       // 当前机构 ID（租户 ID）
+String username = SecurityUtils.getUsername();    // 当前用户名
+Long accountId = SecurityUtils.getAccountId();   // 当前账户 ID
+String token   = SecurityUtils.getToken();       // 当前 token
+
+// 获取完整用户对象
+LoginUser loginUser = SecurityUtils.getLoginUser();
+SysUser sysUser     = loginUser.getSysUser();     // 含 jobNumber、realName 等
+
+// 密码加密
+String encrypted = SecurityUtils.encryptPassword(password, SecurityUtils.LOW_STRENGTH);
+```
+
+### 通用字段赋值
+
+**继承 SuperEntity 的新实体**：createUser/updateUser 由 `MyMetaObjectHandler` 自动填充，无需手动 set。
+
+**旧实体（继承 BaseEntity）**：需手动赋值：
+```java
+config.setCreateBy(SecurityUtils.getUsername());
+config.setUpdateBy(SecurityUtils.getUsername());
+```
+
+## 二、多租户（org_id）
+
+### 自动隔离机制
+
+`MybatisPlusConfig.YddTenantLineHandler` 自动在 SQL 中追加 `WHERE org_id = ?` 条件。
+
+### 新建业务表必须
+
+1. 包含 `org_id` bigint 字段
+2. 在 `MybatisPlusConfig.INTERCEPT_TABLES` 列表中注册表名
+
+```java
+// com.ydd.system.config.MybatisPlusConfig
+private static final List<String> INTERCEPT_TABLES = Arrays.asList(
+    "existing_table",
+    "new_table_name"  // ← 新增的表必须加在这里
+);
+```
+
+**未注册的表不会自动过滤租户数据，存在数据泄露风险。**
+
+### 特殊场景
+
+**超级管理员（userId=1）**自动跳过租户过滤。
+
+**跨租户操作**（如定时任务、系统初始化）：
+```java
+// 临时跳过租户过滤
+SecurityContextHolder.setIgnoreOrg(true);
+try {
+    // 跨租户业务操作...
+} finally {
+    SecurityContextHolder.setIgnoreOrg(false);
+}
+```
+
+**手动设置租户**（第三方回调等无登录态场景）：
+```java
+SecurityContextHolder.setOrgId(organInfo.getId());
+```
+
+## 三、字典系统
+
+### 方式一：DictUtils 缓存 Map（最常用）
+
+```java
+// 获取字典 Map（dictValue -> SysDictData）
+Map<String, SysDictData> dictMap = DictUtils.getDictMapCache("dict_type");
+
+// 通过 dictValue 获取 dictLabel
+String label = dictMap.get(entity.getType().toString()).getDictLabel();
+```
+
+### 方式二：Service 获取
+
+```java
+// 获取 dictValue -> dictLabel 的 Map
+Map<String, String> codeMap = dictTypeService.getDictByCode("dict_type");
+
+// 获取 dictLabel -> dictValue 的 Map
+Map<String, String> labelMap = dictTypeService.getDictLabelAndValue("dict_type");
+```
+
+### 方式三：注解自动转换
+
+在 VO 字段上标注 `@StandardCode`，Controller 方法标注 `@HandleStandardCode`：
+
+```java
+// VO 类
+public class XxxVO {
+    @StandardCode(codeSort = "teachers_type", alias = "teacherTypeName")
+    private Integer teacherType;
+}
+
+// Controller 方法
+@HandleStandardCode(methodDesc = "查询列表")
+@GetMapping("/list")
+public ApiResult<IPage<XxxVO>> list(XxxQuery query) {
+    return ApiResult.success(xxxService.selectPage(query));
+}
+```
+
+AOP 切面 `StandardCodeAspect` 会自动将 dictValue 转换为 dictLabel，结果中会多出 `teacherTypeName` 字段。
+
+### 缓存维护
+
+增删改字典数据后，必须刷新缓存：
+```java
+List<SysDictData> dictDatas = dictDataMapper.selectDictDataByType(data.getDictType());
+DictUtils.setDictCache(data.getDictType(), dictDatas);
+```
+
+### 常见字典类型
+
+`teachers_type`、`system_highest_education`、`system_highest_degree`、`principle_technical_title`、`user_identity`、`system_campus`、`rating_type`、`init_password`

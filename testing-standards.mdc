@@ -1,0 +1,241 @@
+---
+description: 接口测试规范。在测试 API 接口、编写 curl 请求、调试接口、验证功能时应用。
+globs: 
+alwaysApply: false
+---
+
+# 接口测试规范
+
+## 测试 Token
+
+测试用户的 token 信息存储在 `doc/test-token.md` 文件中。需要用户身份信息时，从该文件读取对应角色的 token。
+
+## 请求头
+
+需要认证的接口必须携带 Authorization 请求头：
+
+```
+Authorization: Bearer {token}
+```
+
+## 测试环境
+
+- 本地开发环境：`http://localhost:9201`（ydd-system 服务端口）
+
+## 请求方法
+
+**只使用 GET 和 POST**（与 Controller 规范一致）：
+- 查询操作：GET
+- 新增/修改/删除操作：POST
+
+## 多租户测试
+
+不同 token 对应不同机构（org_id），测试数据在租户间隔离。
+- 管理员 token（userId=1）：可查看所有机构数据
+- 机构用户 token：只能查看本机构数据
+
+---
+
+## 测试流程（完整）
+
+对每个新开发或修改的模块，按以下步骤执行测试：
+
+### Step 1: 准备测试数据
+
+通过新增接口批量创建 **10 条**测试数据，覆盖不同字段组合：
+
+- 包含正常数据、边界数据（最长字符、最大值）
+- 包含不同状态值（如 status=0 和 status=1）
+- 包含不同类型/分类（覆盖字典值）
+
+```
+请通过 {模块名} 的新增接口，生成 10 条测试数据的 curl 命令。
+要求：
+- 数据内容有差异（名称、类型、状态不同）
+- 覆盖正常值和边界值
+- token 从 doc/test-token.md 读取
+```
+
+### Step 2: 执行全部接口测试
+
+依次测试模块的所有接口：
+
+1. **新增**（POST）— 执行 Step 1 生成的 10 条 curl
+2. **列表查询**（GET）— 无条件查询 + 各种筛选条件组合
+3. **详情查询**（GET）— 用新增返回的 ID
+4. **修改**（POST）— 修改部分字段
+5. **删除**（POST）— 删除指定记录
+6. **其他接口** — 导出、状态变更等
+
+### Step 3: 记录测试结果
+
+**每条 curl 请求和对应的响应结果必须保存到测试文档中。**
+
+测试文档路径：`doc/test/{模块名}-test.md`
+
+```
+请将刚才执行的所有 curl 请求和响应结果，整理成测试文档，
+保存到 doc/test/{模块名}-test.md。
+
+格式要求：
+- 每个接口一个章节
+- 包含：接口说明、curl 命令、响应结果、是否通过
+- 发现的问题单独列出
+```
+
+---
+
+## 测试文档格式
+
+测试文档统一输出到 `doc/test/` 目录，命名：`{模块名}-test.md`
+
+```markdown
+# {模块名} 接口测试报告
+
+> 测试时间：2026-xx-xx
+> 测试人员：xxx
+> 测试环境：http://localhost:9201
+
+## 1. 新增
+
+### 1.1 正常新增
+
+**请求：**
+
+curl -X POST 'http://localhost:9201/xxx/add' \
+  -H 'Authorization: Bearer {token}' \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "测试数据1", "type": 1, "status": 0}'
+
+**响应：**
+
+{"code": 200, "msg": "操作成功", "data": true}
+
+**结果：** PASS
+
+### 1.2 参数校验（名称为空）
+
+**请求：**
+
+curl -X POST 'http://localhost:9201/xxx/add' \
+  -H 'Authorization: Bearer {token}' \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "", "type": 1}'
+
+**响应：**
+
+{"code": 500, "msg": "名称不能为空"}
+
+**结果：** PASS
+
+---
+
+## 2. 列表查询
+
+### 2.1 无条件查询
+
+**请求：**
+
+curl -X GET 'http://localhost:9201/xxx/list?pageNum=1&pageSize=10' \
+  -H 'Authorization: Bearer {token}'
+
+**响应：**
+
+{"code": 200, "total": 10, "rows": [...]}
+
+**结果：** PASS
+
+---
+
+## 问题清单
+
+| 编号 | 接口 | 问题描述 | 严重程度 | 状态 |
+|------|------|---------|---------|------|
+| 1 | POST /xxx/add | 名称超过30字符未拦截 | 中 | 待修复 |
+| 2 | GET /xxx/list | 时间范围筛选无效 | 高 | 待修复 |
+```
+
+---
+
+## curl 请求模板
+
+### GET 列表查询（带分页）
+
+```bash
+curl -X GET 'http://localhost:9201/{模块}/list?pageNum=1&pageSize=10' \
+  -H 'Authorization: Bearer {token}'
+```
+
+### GET 条件查询
+
+```bash
+curl -X GET 'http://localhost:9201/{模块}/list?name=关键字&status=0&pageNum=1&pageSize=10' \
+  -H 'Authorization: Bearer {token}'
+```
+
+### GET 详情
+
+```bash
+curl -X GET 'http://localhost:9201/{模块}/getById?id=1' \
+  -H 'Authorization: Bearer {token}'
+```
+
+### POST 新增
+
+```bash
+curl -X POST 'http://localhost:9201/{模块}/add' \
+  -H 'Authorization: Bearer {token}' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "测试数据",
+    "type": 1,
+    "status": 0
+  }'
+```
+
+### POST 修改
+
+```bash
+curl -X POST 'http://localhost:9201/{模块}/edit' \
+  -H 'Authorization: Bearer {token}' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": 1,
+    "name": "修改后的数据",
+    "status": 1
+  }'
+```
+
+### POST 删除
+
+```bash
+curl -X POST 'http://localhost:9201/{模块}/remove/1,2,3' \
+  -H 'Authorization: Bearer {token}'
+```
+
+### POST 参数校验（验证必填字段拦截）
+
+```bash
+curl -X POST 'http://localhost:9201/{模块}/add' \
+  -H 'Authorization: Bearer {token}' \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+---
+
+## 一键生成测试 Prompt
+
+将以下 Prompt 复制到 Cursor Agent 即可自动完成完整测试流程：
+
+```
+请对 {模块名} 模块执行完整的接口测试：
+
+1. 先通过新增接口创建 10 条测试数据（内容有差异，覆盖不同状态和类型）
+2. 然后测试所有接口：列表查询（无条件 + 各筛选条件）、详情、修改、删除
+3. 每条请求都执行并记录 curl 命令和响应结果
+4. 将测试报告保存到 doc/test/{模块名}-test.md
+5. 在报告末尾列出发现的问题清单
+
+token 从 doc/test-token.md 读取，测试地址：http://localhost:9201
+```

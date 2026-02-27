@@ -1,0 +1,59 @@
+---
+description: 文件上传下载规范。在文件上传、下载、使用 MinIO、七牛云、FileStorageService、OSS 操作时应用。
+globs: 
+alwaysApply: false
+---
+
+# OSS 文件上传规范
+
+## 统一上传入口
+
+**使用 `FileStorageService` 统一上传，禁止直接调用 MinIO/七牛云 SDK**
+
+```java
+FileInfo fileInfo = fileStorageService.of(file)
+    .setSaveFilename(fileName)
+    .setPlatform(OssConstants.PLATFORM_MINIO)
+    .setPath(OssConstants.DATE_PATH)
+    .upload();
+```
+
+## 存储路径
+
+使用 `OssConstants` 中定义的路径常量：
+
+| 常量 | 路径 | 用途 |
+|------|------|------|
+| `OssConstants.DATE_PATH` | 日期路径 | 一般业务文件 |
+| `OssConstants.STATIC` | 静态资源路径 | 不随日期变化的静态文件 |
+| `OssConstants.DYNAMIC` | 动态资源路径 | 动态生成的资源 |
+| `OssConstants.MEDICAL` | 医疗资源路径 | 医疗材料文件 |
+
+## 文件类型校验
+
+**使用 Apache Tika 检测文件真实类型，不仅依赖后缀名**：
+
+```java
+Tika tika = new Tika();
+String mimeType = tika.detect(file.getInputStream());
+```
+
+## 文件大小校验
+
+上传前必须校验文件大小，避免超大文件消耗服务器资源。
+
+## 上传方式
+
+| 方法 | 用途 |
+|------|------|
+| `upload()` | 标准上传 |
+| `base64Upload()` | Base64 编码上传 |
+| `uploadBatch()` | 批量上传 |
+| `opUpload()` | 运营后台上传 |
+
+## 下载/打包
+
+| 方法 | 用途 |
+|------|------|
+| `downloadPackQiNiu()` | 打包下载到七牛 |
+| `syncDownloadPackMinio()` | 打包下载到 MinIO |

@@ -1,0 +1,90 @@
+---
+description: Redis 缓存与分布式锁使用规范。在使用 Redis、缓存、分布式锁、RedisService、RedisTemplate 时应用。
+globs: 
+alwaysApply: false
+---
+
+# Redis 缓存与分布式锁规范
+
+## Key 命名规范
+
+格式：`业务模块:对象类型:标识`
+
+```
+sys_config:{configKey}          — 系统配置
+sys_dept:{deptId}               — 部门信息
+sys_post:{postId}               — 岗位信息
+login_tokens:{tokenId}          — 登录令牌
+pwd_err_cnt:{username}          — 密码错误次数
+ydd-base:commonResource:{type}  — 公共资源版本
+```
+
+- 禁止无前缀的 Key
+- Key 长度控制在合理范围内
+
+## TTL 规范
+
+| 场景 | TTL | 说明 |
+|------|-----|------|
+| 验证码 | 5 分钟 | 临时数据必须设过期 |
+| 会话/token | 30 分钟 | 根据业务需求调整 |
+| 系统配置 | 无过期 | 必须有主动刷新机制 |
+| 字典缓存 | 无过期 | 增删改时同步刷新 |
+
+## 缓存操作
+
+**使用 `RedisService` 封装，不直接操作 `RedisTemplate`**
+
+```java
+@Autowired
+private RedisService redisService;
+
+// 设置缓存（带过期时间）
+redisService.setCacheObject("pwd_err_cnt:" + username, retryCount, 5L, TimeUnit.MINUTES);
+
+// 获取缓存
+Integer retryCount = redisService.getCacheObject("pwd_err_cnt:" + username);
+
+// 删除缓存
+redisService.deleteObject("pwd_err_cnt:" + username);
+```
+
+## 缓存更新
+
+增删改操作后，**必须同步刷新缓存**：
+
+```java
+public int updateConfig(SysConfig config) {
+    int row = configMapper.updateConfig(config);
+    if (row > 0) {
+        redisService.setCacheObject(getCacheKey(config.getConfigKey()), config.getConfigValue());
+    }
+    return row;
+}
+```
+
+## 分布式锁
+
+使用 `RedisDistributedLock`，**必须在 finally 中释放锁**：
+
+```java
+@Autowired
+private RedisDistributedLock redisDistributedLock;
+
+String lockKey = "business:lock:" + bizId;
+boolean locked = redisDistributedLock.acquireLock(lockKey, 30);
+if (!locked) {
+    throw new ServiceException("操作正在进行中，请稍后重试");
+}
+try {
+    // 业务操作...
+} finally {
+    redisDistributedLock.releaseLock(lockKey);
+}
+```
+
+## 缓存防护
+
+- **缓存穿透**：对查询结果为空也缓存短时间
+- **缓存雪崩**：过期时间加随机偏移，避免同时失效
+- **缓存击穿**：热点数据使用分布式锁或永不过期

@@ -1,0 +1,121 @@
+---
+description: Controller 层编码规范，定义接口方法、注解、返回值等标准
+globs: **/*Controller.java
+alwaysApply: false
+---
+
+# Controller 层规范
+
+## 基本结构
+
+- 继承 `BaseController`
+- 使用 `@RestController` + `@RequestMapping("/模块路径")`
+- 注入 Service 使用 `@Autowired`
+
+## 请求方法
+
+**只允许 GET 和 POST，禁止使用 PUT 和 DELETE**
+
+- `@GetMapping` — 查询操作（列表、详情、下拉选项等）
+- `@PostMapping` — 写操作（新增、修改、删除、导出等）
+
+## 注解要求
+
+- 每个写操作方法添加 `@Log(title = "模块名", businessType = BusinessType.XXX)`
+- 新增/修改参数添加 `@Validated`
+- 使用 Swagger `@ApiOperation("接口说明")` 描述接口
+
+## 返回值
+
+- 分页列表：`TableDataInfo`（配合 `startPage()` 使用）
+- 操作结果：`AjaxResult`（使用 `toAjax(int rows)` 或 `success()` / `error()`）
+- 对外 API：`ApiResult<T>`
+
+## 禁止事项
+
+- **禁止**在 Controller 中编写业务逻辑
+- **禁止**在 Controller 中直接操作 Mapper
+- **禁止**在 Controller 中捕获异常（交给全局异常处理器）
+
+## 标准 CRUD Controller 模板
+
+```java
+/**
+ * 【业务名称】信息操作处理
+ *
+ * @author ydd
+ */
+@RestController
+@RequestMapping("/模块路径")
+public class XxxController extends BaseController {
+
+    @Autowired
+    private IXxxService xxxService;
+
+    /**
+     * 查询列表
+     */
+    @ApiOperation("查询【业务】列表")
+    @GetMapping("/list")
+    public TableDataInfo list(XxxQuery query) {
+        startPage();
+        List<Xxx> list = xxxService.selectXxxList(query);
+        return getDataTable(list);
+    }
+
+    /**
+     * 获取详细信息
+     */
+    @ApiOperation("获取【业务】详情")
+    @GetMapping("/{id}")
+    public AjaxResult getInfo(@PathVariable Long id) {
+        return success(xxxService.selectXxxById(id));
+    }
+
+    /**
+     * 新增
+     */
+    @ApiOperation("新增【业务】")
+    @Log(title = "【业务名称】", businessType = BusinessType.INSERT)
+    @PostMapping("/add")
+    public AjaxResult add(@Validated @RequestBody XxxDTO dto) {
+        return toAjax(xxxService.insertXxx(dto));
+    }
+
+    /**
+     * 修改
+     */
+    @ApiOperation("修改【业务】")
+    @Log(title = "【业务名称】", businessType = BusinessType.UPDATE)
+    @PostMapping("/edit")
+    public AjaxResult edit(@Validated @RequestBody XxxDTO dto) {
+        return toAjax(xxxService.updateXxx(dto));
+    }
+
+    /**
+     * 删除
+     */
+    @ApiOperation("删除【业务】")
+    @Log(title = "【业务名称】", businessType = BusinessType.DELETE)
+    @PostMapping("/remove/{ids}")
+    public AjaxResult remove(@PathVariable Long[] ids) {
+        return toAjax(xxxService.deleteXxxByIds(ids));
+    }
+
+    /**
+     * 导出
+     */
+    @ApiOperation("导出【业务】")
+    @Log(title = "【业务名称】", businessType = BusinessType.EXPORT)
+    @PostMapping("/export")
+    public void export(HttpServletResponse response, XxxQuery query) {
+        List<Xxx> list = xxxService.selectXxxList(query);
+        ExcelUtil<Xxx> util = new ExcelUtil<>(Xxx.class);
+        util.exportExcel(response, list, "数据");
+    }
+}
+```
+
+## 参考文件
+
+@SysConfigController.java — 现有标准 Controller 示例

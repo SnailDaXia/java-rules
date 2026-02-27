@@ -1,0 +1,153 @@
+---
+description: Service 实现层编码规范，定义业务逻辑、事务、异常处理等标准
+globs: **/*ServiceImpl.java
+alwaysApply: false
+---
+
+# Service 层规范
+
+## 基本结构
+
+- 接口命名：`I{业务}Service`，放在 `service/` 包下
+- 实现类命名：`{业务}ServiceImpl`，放在 `service/impl/` 包下
+- 使用 `@Service` 注解
+- 使用 `@Autowired` 注入 Mapper
+
+## 异常处理
+
+业务异常统一使用 `ServiceException`：
+
+```java
+if (StrUtil.isBlank(data.getDictType())) {
+    throw new ServiceException("字典类型不能为空");
+}
+
+SysDictData existing = dictDataMapper.selectDictLabel(data.getDictType(), data.getDictValue());
+if (existing != null && !existing.getDictCode().equals(data.getDictCode())) {
+    throw new ServiceException("数据键值不能重复");
+}
+```
+
+## 事务管理
+
+- 写操作（涉及多表或需要回滚）：`@Transactional(rollbackFor = Exception.class)`
+- 只读查询（性能优化）：`@Transactional(readOnly = true)`
+- 单表简单操作可不加事务注解
+
+## 通用字段自动填充
+
+继承 `SuperEntity` 的 Entity，通用字段由 `MyMetaObjectHandler` 自动注入：
+- **INSERT 时**自动填充：createTime、updateTime、createUser、updateUser
+- **UPDATE 时**自动填充：updateTime、updateUser
+- **开发者无需手动 set 这些字段**
+
+旧实体（继承 `BaseEntity` 的 SysConfig 等）仍需手动赋值：
+```java
+config.setCreateBy(SecurityUtils.getUsername());
+config.setUpdateBy(SecurityUtils.getUsername());
+```
+
+## 工具类使用
+
+使用 Hutool 工具类，不要手写工具方法：
+- 字符串：`StrUtil.isBlank()` / `StrUtil.isNotBlank()`
+- 集合：`CollUtil.isEmpty()` / `CollUtil.isNotEmpty()`
+- 日期：`DateUtil.format()` / `DateUtil.parse()`
+
+## 多租户
+
+操作包含 `org_id` 的表之前，确认该表已在 `MybatisPlusConfig.INTERCEPT_TABLES` 中注册。
+
+## 缓存维护
+
+增删改操作后，如果涉及缓存数据，必须同步刷新：
+
+```java
+@Override
+public int insertDictData(SysDictData data) {
+    int row = dictDataMapper.insertDictData(data);
+    if (row > 0) {
+        List<SysDictData> dictDatas = dictDataMapper.selectDictDataByType(data.getDictType());
+        DictUtils.setDictCache(data.getDictType(), dictDatas);
+    }
+    return row;
+}
+```
+
+## 标准 ServiceImpl 模板
+
+```java
+/**
+ * 【业务名称】Service 业务层处理
+ *
+ * @author ydd
+ */
+@Service
+public class XxxServiceImpl implements IXxxService {
+
+    @Autowired
+    private XxxMapper xxxMapper;
+
+    /**
+     * 查询列表
+     */
+    @Override
+    public List<Xxx> selectXxxList(XxxQuery query) {
+        return xxxMapper.selectXxxList(query);
+    }
+
+    /**
+     * 查询详情
+     */
+    @Override
+    public Xxx selectXxxById(Long id) {
+        return xxxMapper.selectById(id);
+    }
+
+    /**
+     * 新增
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int insertXxx(XxxDTO dto) {
+        checkXxxData(dto);
+        XxxEntity entity = new XxxEntity();
+        BeanUtil.copyProperties(dto, entity);
+        return xxxMapper.insert(entity);
+    }
+
+    /**
+     * 修改
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int updateXxx(XxxDTO dto) {
+        checkXxxData(dto);
+        XxxEntity entity = new XxxEntity();
+        BeanUtil.copyProperties(dto, entity);
+        return xxxMapper.updateById(entity);
+    }
+
+    /**
+     * 批量删除
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int deleteXxxByIds(Long[] ids) {
+        return xxxMapper.deleteBatchIds(Arrays.asList(ids));
+    }
+
+    /**
+     * 参数校验
+     */
+    private void checkXxxData(XxxDTO dto) {
+        if (StrUtil.isBlank(dto.getName())) {
+            throw new ServiceException("名称不能为空");
+        }
+    }
+}
+```
+
+## 参考文件
+
+@SysDictDataServiceImpl.java — 现有标准 ServiceImpl 示例

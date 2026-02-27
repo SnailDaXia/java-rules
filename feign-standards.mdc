@@ -1,0 +1,73 @@
+---
+description: Feign 远程调用规范。在定义 Feign 客户端、微服务间远程调用、使用 @FeignClient 时应用。
+globs: 
+alwaysApply: false
+---
+
+# Feign 远程调用规范
+
+## 客户端定义
+
+放在 `feign/` 包下，使用 `@FeignClient` 注解：
+
+```java
+@FeignClient(value = "ydd-base", contextId = "baseClient")
+public interface BaseClient {
+
+    @PostMapping("/user/identity/change")
+    ApiResult<String> userIdentityChange(@RequestBody UserIdentityChangeRequest request);
+
+    @GetMapping("/dept/list")
+    ApiResult<List<SysDeptVo>> getDeptList(@SpringQueryMap DeptQuery query);
+}
+```
+
+### 注解参数
+- `value`：目标服务名（Nacos 注册名）
+- `contextId`：唯一标识（同一服务多个 Client 时必须不同）
+
+## 参数传递
+
+| 方式 | 注解 | 适用场景 |
+|------|------|---------|
+| JSON 请求体 | `@RequestBody` | POST 复杂对象 |
+| 查询参数对象 | `@SpringQueryMap` | GET 多参数查询 |
+| 单个参数 | `@RequestParam("name")` | GET 简单参数 |
+| 路径参数 | `@PathVariable("id")` | RESTful 路径 |
+
+## 返回值
+
+统一使用 `ApiResult<T>` 包装：
+
+```java
+ApiResult<String> result = baseClient.userIdentityChange(request);
+if (result == null || !result.isSuccess()) {
+    log.error("远程调用失败：{}", result);
+    throw new ServiceException("操作失败，请稍后重试");
+}
+```
+
+## 调用规范
+
+- 调用方**必须处理远程调用失败**的情况（网络超时、服务不可用）
+- 返回值需判空和判断 `isSuccess()`
+- 记录调用失败日志
+
+## 现有 Feign 客户端
+
+| Client | 目标服务 |
+|--------|---------|
+| `BaseClient` | ydd-base |
+| `ExamClient` | ydd-exam |
+| `ApprovalClient` | ydd-approval-center |
+| `MsgCenterClient` | ydd-message-center |
+| `PrincipleClient` | ydd-principle |
+| `InternClient` | ydd-intern |
+| `TeachingCenterClient` | ydd-teaching-center |
+| `PlatformClient` | ydd-platform |
+| `WechatClient` | ydd-wechat |
+| `TokenClient` | ydd-auth |
+| `AdmissionsCenterClient` | ydd-admissions-center |
+| `CmttClient` | ydd-cmtt |
+| `StructuralExamClient` | ydd-structural-exam |
+| `PrincipleTransferClient` | ydd-principle-transfer |

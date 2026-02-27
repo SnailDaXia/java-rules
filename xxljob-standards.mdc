@@ -1,0 +1,92 @@
+---
+description: XXL-Job 定时任务规范。在创建定时任务、Job Handler、使用 @XxlJob 注解时应用。
+globs: 
+alwaysApply: false
+---
+
+# XXL-Job 定时任务规范
+
+## Handler 定义
+
+- 放在 `xxljob/` 包下
+- 使用 `@XxlJob("handlerName")` 注解
+- 类命名：`{业务}Handler`（如 `TaskHandler`、`AssessmentInfoHandler`）
+
+## 日志
+
+使用 `XxlJobHelper.log()` 记录任务日志（非 SLF4J），便于在 XXL-Job 控制台查看：
+
+```java
+XxlJobHelper.log("XXL-JOB, syncUserInfoHandler to work");
+```
+
+## 异常处理
+
+任务方法**必须有异常捕获**，失败时调用 `XxlJobHelper.handleFail()`：
+
+```java
+@XxlJob("syncUserInfoHandler")
+public void syncUserInfoHandler() {
+    XxlJobHelper.log("XXL-JOB, syncUserInfoHandler start");
+    try {
+        // 业务逻辑...
+        XxlJobHelper.log("syncUserInfoHandler completed successfully");
+    } catch (Exception e) {
+        XxlJobHelper.log("syncUserInfoHandler failed: {}", e.getMessage());
+        XxlJobHelper.handleFail();
+    }
+}
+```
+
+## 多租户
+
+定时任务通常无登录态，需要跨租户操作时：
+
+```java
+@XxlJob("crossOrgHandler")
+public void crossOrgHandler() {
+    SecurityContextHolder.setIgnoreOrg(true);
+    try {
+        // 跨租户业务逻辑...
+    } finally {
+        SecurityContextHolder.setIgnoreOrg(false);
+    }
+}
+```
+
+## Handler 模板
+
+```java
+/**
+ * 【业务描述】定时任务
+ *
+ * @author ydd
+ */
+@Component
+public class XxxHandler {
+
+    @Autowired
+    private IXxxService xxxService;
+
+    @XxlJob("xxxHandler")
+    public void xxxHandler() {
+        XxlJobHelper.log("XXL-JOB, xxxHandler start");
+        try {
+            xxxService.doScheduledTask();
+            XxlJobHelper.log("xxxHandler completed");
+        } catch (Exception e) {
+            XxlJobHelper.log("xxxHandler failed: {}", e.getMessage());
+            XxlJobHelper.handleFail();
+        }
+    }
+}
+```
+
+## 现有定时任务
+
+- `syncUserInfoHandler` — 同步用户信息
+- `unlockBatchHandler` — 批量解锁黑名单
+- `updateAssessmentInfoHandler` — 更新评估信息
+- `refreshPassword` — 刷新密码
+- `refreshExpireOrganStatus` — 刷新过期机构状态
+- `aboutExpireOrganSendMessage` — 过期前发送提醒消息

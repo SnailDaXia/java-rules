@@ -1,0 +1,114 @@
+---
+description: RabbitMQ 消息队列使用规范。在发送消息、消费消息、定义队列和交换机、使用 RabbitMQ 时应用。
+globs: 
+alwaysApply: false
+---
+
+# RabbitMQ 消息队列规范
+
+## 命名规范
+
+| 类型 | 格式 | 示例 |
+|------|------|------|
+| 交换机 | `{业务}.{模块}.exchange` | `sync.user.exchange` |
+| 队列 | `{业务}.{模块}.queue` | `dmp.system.queue` |
+| 路由键 | `{业务}.{模块}.routekey` | `base.sync.routekey` |
+
+## 常量定义
+
+队列、交换机、路由键名称统一定义在 `RabbitmqConstant` 中：
+
+```java
+public class RabbitmqConstant {
+    public static final String SYNC_USER_EXCHANGE = "sync.user.exchange";
+    public static final String SYNC_USER_QUEUE = "sync.user.queue";
+    public static final String SYNC_USER_ROUTEKEY = "sync.user.routekey";
+}
+```
+
+## 队列和交换机声明
+
+统一在 `RabbitmqConfig` 中以 Bean 方式声明：
+
+```java
+@Configuration
+public class RabbitmqConfig {
+
+    // Topic 交换机（默认选择）
+    @Bean
+    public TopicExchange syncExchange() {
+        return new TopicExchange(RabbitmqConstant.SYNC_USER_EXCHANGE);
+    }
+
+    @Bean
+    public Queue syncQueue() {
+        return new Queue(RabbitmqConstant.SYNC_USER_QUEUE, true);
+    }
+
+    @Bean
+    public Binding syncBinding() {
+        return BindingBuilder.bind(syncQueue())
+            .to(syncExchange())
+            .with(RabbitmqConstant.SYNC_USER_ROUTEKEY);
+    }
+
+    // 延迟交换机（定时场景使用 x-delayed-message 插件）
+    @Bean
+    public CustomExchange delayedExchange() {
+        Map<String, Object> args = new HashMap<>();
+        args.put("x-delayed-type", "topic");
+        return new CustomExchange("delayed.exchange", "x-delayed-message", true, false, args);
+    }
+}
+```
+
+## 消息生产者
+
+```java
+@Autowired
+private RabbitTemplate rabbitTemplate;
+
+@Autowired
+private ObjectMapper objectMapper;
+
+public void sendMessage(Object message) {
+    String json = objectMapper.writeValueAsString(message);
+    log.info("发送MQ消息：exchange={}, routeKey={}, message={}", exchange, routeKey, json);
+    rabbitTemplate.convertAndSend(exchange, routeKey, json);
+}
+
+// 延迟消息
+public void sendDelayMessage(Object message, long delayMs) {
+    String json = objectMapper.writeValueAsString(message);
+    rabbitTemplate.convertAndSend("delayed.exchange", routeKey, json, msg -> {
+        msg.getMessageProperties().setHeader("x-delay", delayMs);
+        return msg;
+    });
+}
+```
+
+### 生产者规范
+- 消息体统一使用 JSON 序列化（`ObjectMapper`）
+- 发送前**必须记录日志**（交换机、路由键、消息内容）
+- 发送失败需有兜底处理
+
+## 消息消费者
+
+```java
+@RabbitListener(queues = RabbitmqConstant.SYNC_USER_QUEUE)
+public void handleMessage(String message) {
+    log.info("收到MQ消息：queue={}, message={}", RabbitmqConstant.SYNC_USER_QUEUE, message);
+    try {
+        XxxRequest request = objectMapper.readValue(message, XxxRequest.class);
+        // 业务处理...
+    } catch (Exception e) {
+        log.error("MQ消息消费失败：message={}", message, e);
+    }
+}
+```
+
+### 消费者规范
+- 使用 `@RabbitListener(queues = ...)` 注解
+- **必须有异常捕获**，避免消费失败导致消息丢失
+- 消费逻辑需**幂等设计**（同一消息重复消费不影响结果）
+- 消费前后**记录日志**
